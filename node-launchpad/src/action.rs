@@ -11,6 +11,7 @@ use crate::{
     node_stats::NodeStats,
 };
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use strum::Display;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Display, Deserialize)]
@@ -22,6 +23,7 @@ pub enum Action {
 
     StoreDiscordUserName(String),
     StoreNodesToStart(usize),
+    StoreNodeInstallPath(PathBuf),
 
     Tick,
     Render,

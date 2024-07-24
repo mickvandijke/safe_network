@@ -10,39 +10,58 @@ use color_eyre::{eyre::ContextCompat, Result};
 use crossterm::event::{Event, KeyCode, KeyEvent};
 use ratatui::{prelude::*, widgets::*};
 use std::path::PathBuf;
+use std::str::FromStr;
 use sysinfo::Disks;
 use tui_input::{backend::crossterm::EventHandler, Input};
 
+use super::{utils::centered_rect_fixed, Component};
+use crate::style::COOL_GREY;
 use crate::{
     action::Action,
     mode::{InputMode, Scene},
     style::{clear_area, EUCALYPTUS, GHOST_WHITE, LIGHT_PERIWINKLE, VIVID_SKY_BLUE},
 };
 
-use super::{utils::centered_rect_fixed, Component};
-
 pub const GB_PER_NODE: usize = 5;
 pub const MB: usize = 1000 * 1000;
 pub const GB: usize = MB * 1000;
 pub const MAX_NODE_COUNT: usize = 50;
 
+enum FocusedComponent {
+    NodeCount,
+    InstallPath,
+}
+
 pub struct ManageNodes {
     /// Whether the component is active right now, capturing keystrokes + drawing things.
     active: bool,
+    /// Which inner component is selected
+    focused: FocusedComponent,
     available_disk_space_gb: usize,
     nodes_to_start_input: Input,
     // cache the old value incase user presses Esc.
     old_value: String,
+    folder_path_input: Input,
+    old_folder_path: Option<PathBuf>,
 }
 
 impl ManageNodes {
-    pub fn new(nodes_to_start: usize) -> Result<Self> {
+    pub fn new(nodes_to_start: usize, node_install_path: Option<PathBuf>) -> Result<Self> {
         let nodes_to_start = std::cmp::min(nodes_to_start, MAX_NODE_COUNT);
         let new = Self {
             active: false,
+            focused: FocusedComponent::NodeCount,
             available_disk_space_gb: Self::get_available_space_b()? / GB,
             nodes_to_start_input: Input::default().with_value(nodes_to_start.to_string()),
             old_value: Default::default(),
+            folder_path_input: Input::default().with_value(
+                node_install_path
+                    .as_ref()
+                    .map(|v| v.to_str().unwrap_or_default())
+                    .unwrap_or_default()
+                    .to_owned(),
+            ),
+            old_folder_path: node_install_path,
         };
         Ok(new)
     }
@@ -126,6 +145,13 @@ impl Component for ManageNodes {
                     .nodes_to_start_input
                     .clone()
                     .with_value(self.old_value.clone());
+                self.folder_path_input = self.folder_path_input.clone().with_value(
+                    self.old_folder_path
+                        .as_ref()
+                        .map(|v| v.to_str().unwrap_or_default())
+                        .unwrap_or_default()
+                        .to_owned(),
+                );
                 vec![Action::SwitchScene(Scene::Home)]
             }
             KeyCode::Char(c) if c.is_numeric() => {
@@ -154,38 +180,48 @@ impl Component for ManageNodes {
                 self.nodes_to_start_input.handle_event(&Event::Key(key));
                 vec![]
             }
-            KeyCode::Up | KeyCode::Down => {
-                let nodes_to_start = {
-                    let current_val = self.get_nodes_to_start_val();
+            KeyCode::Right | KeyCode::Left => {
+                match self.focused {
+                    FocusedComponent::NodeCount => {
+                        let nodes_to_start = {
+                            let current_val = self.get_nodes_to_start_val();
 
-                    if key.code == KeyCode::Up {
-                        if current_val + 1 >= MAX_NODE_COUNT {
-                            MAX_NODE_COUNT
-                        } else if (current_val + 1) * GB_PER_NODE <= self.available_disk_space_gb {
-                            current_val + 1
-                        } else {
-                            current_val
-                        }
-                    } else {
-                        // Key::Down
-                        if current_val == 0 {
-                            0
-                        } else {
-                            current_val - 1
-                        }
+                            if key.code == KeyCode::Right {
+                                if current_val + 1 >= MAX_NODE_COUNT {
+                                    MAX_NODE_COUNT
+                                } else if (current_val + 1) * GB_PER_NODE
+                                    <= self.available_disk_space_gb
+                                {
+                                    current_val + 1
+                                } else {
+                                    current_val
+                                }
+                            } else {
+                                // Key::Down
+                                if current_val == 0 {
+                                    0
+                                } else {
+                                    current_val - 1
+                                }
+                            }
+                        };
+                        // set the new value
+                        self.nodes_to_start_input = self
+                            .nodes_to_start_input
+                            .clone()
+                            .with_value(nodes_to_start.to_string());
+                        vec![]
                     }
-                };
-                // set the new value
-                self.nodes_to_start_input = self
-                    .nodes_to_start_input
-                    .clone()
-                    .with_value(nodes_to_start.to_string());
-                vec![]
+                    FocusedComponent::InstallPath => {
+                        vec![]
+                    }
+                }
             }
             _ => {
                 vec![]
             }
         };
+
         Ok(send_back)
     }
 
@@ -195,6 +231,9 @@ impl Component for ManageNodes {
                 Scene::ManageNodes => {
                     self.active = true;
                     self.old_value = self.nodes_to_start_input.value().to_string();
+                    self.old_folder_path = PathBuf::from_str(self.folder_path_input.value())
+                        .map(Some)
+                        .unwrap_or_default();
                     // set to entry input mode as we want to handle everything within our handle_key_events
                     // so by default if this scene is active, we capture inputs.
                     Some(Action::SwitchInputMode(InputMode::Entry))
@@ -214,7 +253,7 @@ impl Component for ManageNodes {
             return Ok(());
         }
 
-        let layer_zero = centered_rect_fixed(52, 15, area);
+        let layer_zero = centered_rect_fixed(52, 18, area);
         let layer_one = Layout::new(
             Direction::Vertical,
             [
@@ -228,6 +267,8 @@ impl Component for ManageNodes {
                 Constraint::Length(1),
                 // for the help
                 Constraint::Length(3),
+                // for the folder path input
+                Constraint::Length(1),
                 // for the dash
                 Constraint::Min(1),
                 // for the buttons
@@ -305,16 +346,48 @@ impl Component for ManageNodes {
             .fg(GHOST_WHITE);
         f.render_widget(help, layer_one[4]);
 
+        // ==== folder path input ====
+        // let mut node_install_folder_path_block = Block::bordered()
+        //     .title("Node Install Folder Path")
+        //     .padding(Padding::uniform(10));
+        //
+        // let active_style = Style::default().bg(Color::LightYellow).fg(Color::Black);
+        //
+        // if let FocusedComponent::InstallPath = self.focused {
+        //     node_install_folder_path_block = node_install_folder_path_block.style(active_style)
+        // }
+        //
+        // let node_install_folder_path_text = Paragraph::new(self.folder_path_input.value())
+        //     .block(node_install_folder_path_block)
+        //     .alignment(Alignment::Center)
+        //     .fg(VIVID_SKY_BLUE);
+        //
+        // f.render_widget(node_install_folder_path_text, layer_one[5]);
+
+        f.render_widget(
+            Paragraph::new("Nodes will appear here when added")
+                .fg(LIGHT_PERIWINKLE)
+                .block(
+                    Block::default()
+                        .title("Node Status")
+                        .title_style(Style::default().fg(LIGHT_PERIWINKLE))
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(COOL_GREY))
+                        .padding(Padding::uniform(1)),
+                ),
+            layer_one[5],
+        );
+
         // ==== dash ====
         let dash = Block::new()
             .borders(Borders::BOTTOM)
             .border_style(Style::new().fg(GHOST_WHITE));
-        f.render_widget(dash, layer_one[5]);
+        f.render_widget(dash, layer_one[6]);
 
         // ==== buttons ====
         let buttons_layer =
             Layout::horizontal(vec![Constraint::Percentage(45), Constraint::Percentage(55)])
-                .split(layer_one[6]);
+                .split(layer_one[7]);
 
         let button_no = Line::from(vec![Span::styled(
             "  Close [Esc]",

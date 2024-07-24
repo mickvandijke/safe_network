@@ -52,6 +52,7 @@ pub async fn configure_winsw() -> Result<()> {
 pub struct AppData {
     pub discord_username: String,
     pub nodes_to_start: usize,
+    pub node_install_path: Option<PathBuf>,
 }
 
 impl AppData {
