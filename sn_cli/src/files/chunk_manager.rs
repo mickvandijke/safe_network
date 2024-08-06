@@ -68,7 +68,7 @@ pub struct ChunkManager {
     /// Dir for chunk artifacts
     artifacts_dir: PathBuf,
     files_to_chunk: Vec<(OsString, PathXorName, PathBuf)>,
-    chunks: BTreeMap<PathXorName, ChunkedFile>,
+    chunked_files: BTreeMap<PathXorName, ChunkedFile>,
     completed_files: Vec<(PathBuf, OsString, ChunkAddress)>,
     resumed_chunk_count: usize,
     resumed_files_count: usize,
@@ -82,7 +82,7 @@ impl ChunkManager {
             root_dir: root_dir.to_path_buf(),
             artifacts_dir,
             files_to_chunk: Default::default(),
-            chunks: Default::default(),
+            chunked_files: Default::default(),
             completed_files: Default::default(),
             resumed_files_count: 0,
             resumed_chunk_count: 0,
@@ -133,7 +133,7 @@ impl ChunkManager {
         let now = Instant::now();
         // clean up
         self.files_to_chunk = Default::default();
-        self.chunks = Default::default();
+        self.chunked_files = Default::default();
         self.completed_files = Default::default();
         self.resumed_chunk_count = 0;
         self.resumed_files_count = 0;
@@ -166,23 +166,23 @@ impl ChunkManager {
 
         // note the number of chunks that we've resumed
         self.resumed_chunk_count = self
-            .chunks
+            .chunked_files
             .values()
             .flat_map(|chunked_file| &chunked_file.chunks)
             .count();
         // note the number of files that we've resumed
-        self.resumed_files_count = self.chunks.keys().collect::<BTreeSet<_>>().len();
+        self.resumed_files_count = self.chunked_files.keys().collect::<BTreeSet<_>>().len();
 
         // Filter out files_to_chunk; Any PathXorName in chunks_to_upload is considered to be resumed.
         {
-            let path_xors = self.chunks.keys().collect::<BTreeSet<_>>();
+            let path_xors = self.chunked_files.keys().collect::<BTreeSet<_>>();
             self.files_to_chunk
                 .retain(|(_, path_xor, _)| !path_xors.contains(path_xor));
         }
 
         // Get the list of completed files
         {
-            let completed_files = self.chunks.iter().filter_map(|(_, chunked_file)| {
+            let completed_files = self.chunked_files.iter().filter_map(|(_, chunked_file)| {
                 if chunked_file.chunks.is_empty() {
                     Some((
                         chunked_file.file_path.clone(),
@@ -253,7 +253,7 @@ impl ChunkManager {
         // Self::resume_path would create an empty self.chunks entry if a file that was fully
         // completed was resumed. Thus if it is empty, the user did not provide any valid file
         // path.
-        if chunked_files.is_empty() && self.chunks.is_empty() {
+        if chunked_files.is_empty() && self.chunked_files.is_empty() {
             bail!(
                 "The provided path does not contain any file. Please check your path!\nExiting..."
             );
@@ -292,7 +292,7 @@ impl ChunkManager {
 
         progress_bar.finish_and_clear();
         debug!("It took {:?} to chunk {} files", now.elapsed(), total_files);
-        self.chunks.extend(chunked_files);
+        self.chunked_files.extend(chunked_files);
 
         Ok(())
     }
@@ -318,13 +318,13 @@ impl ChunkManager {
             })
             .collect::<BTreeMap<_, _>>();
 
-        self.chunks.extend(resumed);
+        self.chunked_files.extend(resumed);
     }
 
     /// Get all the chunk name and their path.
     /// If include_data_maps is true, append all the ChunkedFile.data_map chunks to the vec
     pub fn get_chunks(&self) -> Vec<(XorName, PathBuf)> {
-        self.chunks
+        self.chunked_files
             .values()
             .flat_map(|chunked_file| &chunked_file.chunks)
             .cloned()
@@ -332,7 +332,7 @@ impl ChunkManager {
     }
 
     pub fn is_chunks_empty(&self) -> bool {
-        self.chunks
+        self.chunked_files
             .values()
             .flat_map(|chunked_file| &chunked_file.chunks)
             .next()
@@ -344,7 +344,7 @@ impl ChunkManager {
     #[allow(dead_code)]
     pub fn mark_completed_all(&mut self) -> Result<()> {
         let all_chunks = self
-            .chunks
+            .chunked_files
             .values()
             .flat_map(|chunked_file| &chunked_file.chunks)
             .map(|(chunk, _)| *chunk)
@@ -359,7 +359,7 @@ impl ChunkManager {
         trace!("marking as completed: {set_of_completed_chunks:?}");
 
         // remove those files
-        self.chunks
+        self.chunked_files
             .par_iter()
             .flat_map(|(_, chunked_file)| &chunked_file.chunks)
             .map(|(chunk_xor, chunk_path)| {
@@ -376,19 +376,21 @@ impl ChunkManager {
 
         let mut entire_file_is_done = BTreeSet::new();
         // remove the entries from the struct
-        self.chunks.iter_mut().for_each(|(path_xor, chunked_file)| {
-            chunked_file
-                .chunks
-                // if chunk is part of completed_chunks, return false to remove it
-                .retain(|(chunk_xor, _)| !set_of_completed_chunks.contains(chunk_xor));
-            if chunked_file.chunks.is_empty() {
-                entire_file_is_done.insert(path_xor.clone());
-            }
-        });
+        self.chunked_files
+            .iter_mut()
+            .for_each(|(path_xor, chunked_file)| {
+                chunked_file
+                    .chunks
+                    // if chunk is part of completed_chunks, return false to remove it
+                    .retain(|(chunk_xor, _)| !set_of_completed_chunks.contains(chunk_xor));
+                if chunked_file.chunks.is_empty() {
+                    entire_file_is_done.insert(path_xor.clone());
+                }
+            });
 
         for path_xor in &entire_file_is_done {
             // todo: should we remove the entry? ig so
-            if let Some(chunked_file) = self.chunks.remove(path_xor) {
+            if let Some(chunked_file) = self.chunked_files.remove(path_xor) {
                 trace!("removed {path_xor:?} from chunks list");
 
                 self.completed_files.push((
@@ -438,7 +440,7 @@ impl ChunkManager {
 
     /// Return the list of Filenames that have some chunks that are yet to be marked as completed.
     pub(crate) fn incomplete_files(&self) -> Vec<(&PathBuf, &OsString, &ChunkAddress)> {
-        self.chunks
+        self.chunked_files
             .values()
             .map(|chunked_file| {
                 (
@@ -452,7 +454,7 @@ impl ChunkManager {
 
     /// Returns an iterator over the list of chunked files
     pub(crate) fn iter_chunked_files(&mut self) -> impl Iterator<Item = &ChunkedFile> {
-        self.chunks.values()
+        self.chunked_files.values()
     }
 
     // Try to read the chunks from `file_chunks_dir`
@@ -633,7 +635,7 @@ mod tests {
         let file_xor_addr_from_metadata =
             file_xor_addr_from_metadata.expect("The metadata file should be present");
         let file_xor_addr = manager
-            .chunks
+            .chunked_files
             .values()
             .next()
             .expect("1 file should be present")
@@ -642,7 +644,7 @@ mod tests {
 
         // 5. make sure the chunked file's name is the XorName of that chunk
         let chunk_xornames = manager
-            .chunks
+            .chunked_files
             .values()
             .next()
             .expect("We must have 1 file here")
@@ -710,7 +712,7 @@ mod tests {
         let file_xor_addr_from_metadata =
             file_xor_addr_from_metadata.expect("The metadata file should be present");
         let file_xor_addr = manager
-            .chunks
+            .chunked_files
             .values()
             .next()
             .expect("1 file should be present")
@@ -719,7 +721,7 @@ mod tests {
 
         // 5. make sure the chunked file's name is the XorName of that chunk
         let chunk_xornames = manager
-            .chunks
+            .chunked_files
             .values()
             .next()
             .expect("We must have 1 file here")
@@ -748,21 +750,21 @@ mod tests {
         let _ = create_random_files(&random_files_dir, 1, 1)?;
         manager.chunk_path(&random_files_dir, true, true)?;
 
-        let path_xor = manager.chunks.keys().next().unwrap().clone();
-        let chunked_file = manager.chunks.values().next().unwrap().clone();
+        let path_xor = manager.chunked_files.keys().next().unwrap().clone();
+        let chunked_file = manager.chunked_files.values().next().unwrap().clone();
         let file_xor_addr = chunked_file.head_chunk_address;
         let (chunk, _) = chunked_file
             .chunks
             .first()
             .expect("Must contain 1 chunk")
             .clone();
-        let total_chunks = manager.chunks.values().next().unwrap().chunks.len();
+        let total_chunks = manager.chunked_files.values().next().unwrap().chunks.len();
         manager.mark_completed(vec![chunk].into_iter())?;
 
         // 1. chunk should be removed from the struct
         assert_eq!(
             manager
-                .chunks
+                .chunked_files
                 .values()
                 .next()
                 .expect("Since the file was not fully completed, it should be present")
@@ -813,7 +815,7 @@ mod tests {
         assert_eq!(manager.completed_files.len(), 5);
 
         // all 5 folders should exist
-        for (path_xor, chunked_file) in manager_clone.chunks.iter() {
+        for (path_xor, chunked_file) in manager_clone.chunked_files.iter() {
             let file_chunks_dir = manager_clone.artifacts_dir.join(path_xor.0.clone());
             let (path_xor_from_dir, chunked_file_from_dir) = ChunkManager::read_file_chunks_dir(
                 file_chunks_dir,
@@ -846,7 +848,7 @@ mod tests {
 
         // 1. make sure the chunk counts match
         let total_chunk_count = manager
-            .chunks
+            .chunked_files
             .values()
             .flat_map(|chunked_file| &chunked_file.chunks)
             .count();
@@ -854,7 +856,7 @@ mod tests {
         assert_eq!(new_manager.resumed_chunk_count, total_chunk_count);
 
         // 2. assert the two managers
-        assert_eq!(manager.chunks, new_manager.chunks);
+        assert_eq!(manager.chunked_files, new_manager.chunked_files);
         assert_eq!(manager.completed_files, new_manager.completed_files);
 
         Ok(())
@@ -869,14 +871,14 @@ mod tests {
         manager.chunk_path(&random_files_dir, true, true)?;
 
         let total_chunks_count = manager
-            .chunks
+            .chunked_files
             .values()
             .flat_map(|chunked_file| &chunked_file.chunks)
             .count();
 
         // mark a chunk as completed
         let removed_chunk = manager
-            .chunks
+            .chunked_files
             .values()
             .next()
             .expect("Atleast 1 file should be present")
@@ -895,7 +897,7 @@ mod tests {
         // also check the structs
         assert_eq!(
             new_manager
-                .chunks
+                .chunked_files
                 .values()
                 .flat_map(|chunked_file| &chunked_file.chunks)
                 .count(),
@@ -921,10 +923,10 @@ mod tests {
         new_manager.chunk_path(&random_files_dir, true, true)?;
 
         // 1. we should have chunk entries, but 0 chunks inside them
-        assert_eq!(new_manager.chunks.len(), 5);
+        assert_eq!(new_manager.chunked_files.len(), 5);
         assert_eq!(
             new_manager
-                .chunks
+                .chunked_files
                 .values()
                 .flat_map(|chunked_file| &chunked_file.chunks)
                 .count(),
