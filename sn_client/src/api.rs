@@ -8,8 +8,7 @@
 
 use super::{
     error::{Error, Result},
-    Client, ClientEvent, ClientEventsBroadcaster, ClientEventsReceiver, ClientRegister,
-    WalletClient,
+    ClientEvent, ClientEventsBroadcaster, ClientEventsReceiver, ClientRegister, WalletClient,
 };
 use bls::{PublicKey, SecretKey, Signature};
 use libp2p::{
@@ -23,8 +22,8 @@ use rand::{thread_rng, Rng};
 use sn_networking::{
     get_signed_spend_from_record, multiaddr_is_global,
     target_arch::{interval, spawn, timeout, Instant},
-    GetRecordCfg, GetRecordError, NetworkBuilder, NetworkError, NetworkEvent, PutRecordCfg,
-    VerificationKind, CLOSE_GROUP_SIZE,
+    GetRecordCfg, GetRecordError, Network, NetworkBuilder, NetworkError, NetworkEvent,
+    PutRecordCfg, VerificationKind, CLOSE_GROUP_SIZE,
 };
 use sn_protocol::{
     error::Error as ProtocolError,
@@ -57,6 +56,14 @@ pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
 /// The timeout duration for the client to receive any response from the network.
 const INACTIVITY_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Client API implementation to store and get data.
+#[derive(Clone)]
+pub struct Client {
+    pub network: Network,
+    events_broadcaster: ClientEventsBroadcaster,
+    signer: Arc<SecretKey>,
+}
+
 impl Client {
     /// A quick client with a random secret key and some peers.
     pub async fn quick_start(peers: Option<Vec<Multiaddr>>) -> Result<Self> {
@@ -77,7 +84,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, Error};
+    /// use sn_client::Error;
+    /// use sn_client::api::Client;
     /// use bls::SecretKey;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(),Error>{
@@ -318,7 +326,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, Error};
+    /// use sn_client::Error;
+    /// use sn_client::api::Client;
     /// use bls::SecretKey;
     ///
     /// # #[tokio::main]
@@ -359,7 +368,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, Error};
+    /// use sn_client::Error;
+    /// use sn_client::api::Client;
     /// use bls::SecretKey;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(),Error>{
@@ -380,7 +390,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, Error};
+    /// use sn_client::Error;
+    /// use sn_client::api::Client;
     /// use bls::SecretKey;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(),Error>{
@@ -400,7 +411,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, Error};
+    /// use sn_client::Error;
+    /// use sn_client::api::Client;
     /// use bls::SecretKey;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(),Error>{
@@ -425,7 +437,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, Error};
+    /// use sn_client::Error;
+    /// use sn_client::api::Client;
     /// use bls::SecretKey;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(),Error>{
@@ -499,7 +512,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, Error};
+    /// use sn_client::Error;
+    /// use sn_client::api::Client;
     /// use bls::SecretKey;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(),Error>{
@@ -537,7 +551,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, WalletClient, Error};
+    /// use sn_client::{WalletClient, Error};
+    /// use sn_client::api::Client;
     /// use tempfile::TempDir;
     /// use bls::SecretKey;
     /// use sn_transfers::{MainSecretKey};
@@ -698,7 +713,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, Error};
+    /// use sn_client::Error;
+    /// use sn_client::api::Client;
     /// use bls::SecretKey;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(),Error>{
@@ -791,7 +807,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, Error};
+    /// use sn_client::Error;
+    /// use sn_client::api::Client;
     /// use bls::SecretKey;
     /// use xor_name::XorName;
     /// use sn_registers::RegisterAddress;
@@ -822,7 +839,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, Error};
+    /// use sn_client::Error;
+    /// use sn_client::api::Client;
     /// use bls::SecretKey;
     /// use xor_name::XorName;
     /// use sn_registers::RegisterAddress;
@@ -914,7 +932,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, Error};
+    /// use sn_client::Error;
+    /// use sn_client::api::Client;
     /// use bls::SecretKey;
     /// use xor_name::XorName;
     /// use sn_transfers::SpendAddress;
@@ -1046,7 +1065,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, Error};
+    /// use sn_client::Error;
+    /// use sn_client::api::Client;
     /// use bls::SecretKey;
     /// # #[tokio::main]
     /// # async fn main() -> Result<(),Error>{

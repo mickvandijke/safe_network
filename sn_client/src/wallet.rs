@@ -6,9 +6,10 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::api::Client;
 use crate::Error;
 
-use super::{error::Result, Client};
+use super::error::Result;
 use backoff::{backoff::Backoff, ExponentialBackoff};
 use futures::{future::join_all, TryFutureExt};
 use libp2p::PeerId;
@@ -53,7 +54,8 @@ impl WalletClient {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, WalletClient, Error};
+    /// use sn_client::{WalletClient, Error};
+    /// use sn_client::api::Client;
     /// use tempfile::TempDir;
     /// use bls::SecretKey;
     /// use sn_transfers::{HotWallet, MainSecretKey};
@@ -73,7 +75,8 @@ impl WalletClient {
     /// Stores the wallet to the local wallet directory.
     /// # Example
     /// ```no_run
-    /// # use sn_client::{Client, WalletClient, Error};
+    /// # use sn_client::{WalletClient, Error};
+    /// # use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// # use bls::SecretKey;
     /// # use sn_transfers::{HotWallet, MainSecretKey};
@@ -94,7 +97,8 @@ impl WalletClient {
     /// # Example
     /// ```no_run
     /// // Display the wallet balance in the terminal
-    /// # use sn_client::{Client, WalletClient, Error};
+    /// # use sn_client::{WalletClient, Error};
+    /// # use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// # use bls::SecretKey;
     /// # use sn_transfers::{HotWallet, MainSecretKey};
@@ -115,7 +119,8 @@ impl WalletClient {
     /// # Example
     /// ```no_run
     /// // Print unconfirmed spends to the terminal
-    /// # use sn_client::{Client, WalletClient, Error};
+    /// # use sn_client::{WalletClient, Error};
+    /// # use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// # use bls::SecretKey;
     /// # use sn_transfers::{HotWallet, MainSecretKey};
@@ -143,7 +148,8 @@ impl WalletClient {
     /// # Example
     /// ```no_run
     /// // Getting the payment for an address using a random PeerId
-    /// # use sn_client::{Client, WalletClient, Error};
+    /// # use sn_client::{WalletClient, Error};
+    /// # use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// # use bls::SecretKey;
     /// # use sn_transfers::{HotWallet, MainSecretKey};
@@ -187,7 +193,8 @@ impl WalletClient {
     /// # Example
     /// ```no_run
     /// // Getting the payment for an address using a random PeerId
-    /// # use sn_client::{Client, WalletClient, Error};
+    /// # use sn_client::{WalletClient, Error};
+    /// # use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// # use bls::SecretKey;
     /// # use sn_transfers::{HotWallet, MainSecretKey};
@@ -243,7 +250,8 @@ impl WalletClient {
     /// # Example
     /// ```no_run
     /// // Removing a payment address using a random PeerId
-    /// # use sn_client::{Client, WalletClient, Error};
+    /// # use sn_client::{WalletClient, Error};
+    /// # use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// # use bls::SecretKey;
     /// # use sn_transfers::{HotWallet, MainSecretKey};
@@ -282,7 +290,8 @@ impl WalletClient {
     ///
     /// # Example
     /// ```no_run
-    /// # use sn_client::{Client, WalletClient, Error};
+    /// # use sn_client::{WalletClient, Error};
+    /// # use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// # use bls::SecretKey;
     /// # use sn_transfers::{HotWallet, MainSecretKey};
@@ -349,7 +358,8 @@ impl WalletClient {
     ///
     /// # Example
     ///```no_run
-    /// # use sn_client::{Client, WalletClient, Error};
+    /// # use sn_client::{WalletClient, Error};
+    /// # use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// # use bls::SecretKey;
     /// # use sn_transfers::{HotWallet, MainSecretKey};
@@ -391,7 +401,8 @@ impl WalletClient {
     ///
     /// # Example
     ///```no_run
-    /// # use sn_client::{Client, WalletClient, Error};
+    /// # use sn_client::{WalletClient, Error};
+    /// # use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// # use bls::SecretKey;
     /// # use sn_transfers::{HotWallet, MainSecretKey};
@@ -524,7 +535,8 @@ impl WalletClient {
     ///
     /// # Example
     ///```no_run
-    /// # use sn_client::{Client, WalletClient, Error};
+    /// # use sn_client::{WalletClient, Error};
+    /// # use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// # use bls::SecretKey;
     /// # use sn_transfers::{HotWallet, MainSecretKey};
@@ -786,7 +798,8 @@ impl WalletClient {
     ///
     /// # Example
     /// ```no_run
-    /// # use sn_client::{Client, WalletClient, Error};
+    /// # use sn_client::{WalletClient, Error};
+    /// # use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// # use bls::SecretKey;
     /// # use sn_transfers::{HotWallet, MainSecretKey};
@@ -811,7 +824,8 @@ impl WalletClient {
     ///
     /// # Example
     /// ```no_run
-    /// # use sn_client::{Client, WalletClient, Error};
+    /// # use sn_client::{WalletClient, Error};
+    /// # use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// # use bls::SecretKey;
     /// # use sn_transfers::{HotWallet, MainSecretKey};
@@ -841,7 +855,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, WalletClient, Error};
+    /// use sn_client::{WalletClient, Error};
+    /// use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// use bls::SecretKey;
     /// use sn_transfers::{HotWallet, MainSecretKey};
@@ -937,7 +952,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, WalletClient, Error};
+    /// use sn_client::{WalletClient, Error};
+    /// use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// use bls::SecretKey;
     /// use sn_transfers::{HotWallet, MainSecretKey};
@@ -1028,7 +1044,8 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// use sn_client::{Client, WalletClient, Error};
+    /// use sn_client::{WalletClient, Error};
+    /// use sn_client::api::Client;
     /// # use tempfile::TempDir;
     /// use bls::SecretKey;
     /// use sn_transfers::{HotWallet, MainSecretKey};
@@ -1093,7 +1110,8 @@ impl Client {
 ///
 /// # Example
 /// ```no_run
-/// use sn_client::{Client, WalletClient, Error};
+/// use sn_client::{WalletClient, Error};
+/// use sn_client::api::Client;
 /// # use tempfile::TempDir;
 /// use bls::SecretKey;
 /// use sn_transfers::{HotWallet, MainSecretKey};
