@@ -16,9 +16,14 @@ test-utils = []
 
 [dependencies]
 bls = { package = "blsttc", version = "8.0.1" }
+bip39 = "2.0.0"
 chrono = "0.4.38"
+curv = { version = "0.10.1", package = "sn_curv", default-features = false, features = [
+    "num-bigint",
+] }
 custom_debug = "~0.6.1"
 dirs-next = "~2.0.0"
+eip2333 = { version = "0.2.1", package = "sn_bls_ckd" }
 hex = "~0.4.3"
 lazy_static = "~1.4.0"
 libp2p = { version = "0.53", features = ["identify", "kad"] }

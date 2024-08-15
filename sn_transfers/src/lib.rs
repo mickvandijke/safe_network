@@ -14,6 +14,7 @@ mod error;
 mod genesis;
 mod transfers;
 mod wallet;
+mod wallet_new;
 
 /// Types used in the public API
 pub use cashnotes::{

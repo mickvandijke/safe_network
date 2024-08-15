@@ -7400,6 +7400,7 @@ name = "sn_transfers"
 version = "0.18.9"
 dependencies = [
  "assert_fs",
+ "bip39",
  "blsttc",
  "chrono",
  "criterion",
@@ -7419,6 +7420,8 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
+ "sn_bls_ckd",
+ "sn_curv",
  "tempfile",
  "thiserror",
  "tiny-keccak",
