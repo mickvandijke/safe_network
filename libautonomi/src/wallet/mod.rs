@@ -1,10 +1,11 @@
 pub mod error;
+mod state;
 
 use crate::wallet::error::WalletError;
 use sn_client::transfers::{HotWallet, MainSecretKey};
 use sn_transfers::{
     CashNote, CashNoteRedemption, DerivationIndex, DerivedSecretKey, MainPubkey, NanoTokens,
-    OfflineTransfer, SignedSpend, SpendReason, Transfer, UniquePubkey,
+    OfflineTransfer, SignedSpend, Spend, SpendReason, Transfer, UniquePubkey,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -12,6 +13,8 @@ use std::path::PathBuf;
 pub struct MemWallet {
     hot_wallet: HotWallet,
     available_cash_notes: BTreeMap<UniquePubkey, CashNote>,
+    pub pending_spends: BTreeMap<UniquePubkey, Spend>,
+    pub confirmed_spends: BTreeMap<UniquePubkey, Spend>,
 }
 
 impl MemWallet {
@@ -20,6 +23,8 @@ impl MemWallet {
         Self {
             hot_wallet: HotWallet::new(main_secret_key, PathBuf::default()),
             available_cash_notes: Default::default(),
+            pending_spends: Default::default(),
+            confirmed_spends: Default::default(),
         }
     }
 
@@ -93,7 +98,7 @@ impl MemWallet {
         Ok(transfer)
     }
 
-    fn mark_cash_notes_as_spent<'a, T: IntoIterator<Item = &'a UniquePubkey>>(
+    fn remove_cash_notes<'a, T: IntoIterator<Item = &'a UniquePubkey>>(
         &mut self,
         unique_pubkeys: T,
     ) {
@@ -149,7 +154,7 @@ impl MemWallet {
             .map(|input| input.unique_pubkey())
             .collect();
 
-        self.mark_cash_notes_as_spent(spent_unique_pubkeys);
+        self.remove_cash_notes(spent_unique_pubkeys);
 
         if let Some(cash_note) = transfer.change_cash_note {
             let _ = self.deposit_cash_note(cash_note);
