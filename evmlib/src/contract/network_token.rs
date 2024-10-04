@@ -1,4 +1,4 @@
-use crate::common::{Address, TxHash, U256};
+use crate::common::{Address, Calldata, TxHash, U256};
 use crate::contract::network_token::NetworkTokenContract::NetworkTokenContractInstance;
 use alloy::providers::{Network, Provider};
 use alloy::sol;
@@ -69,6 +69,13 @@ where
         Ok(tx_hash)
     }
 
+    /// Approve spender to spend a raw amount of tokens.
+    /// Returns the `To` address and transaction calldata.
+    pub fn approve_calldata(&self, spender: Address, value: U256) -> (Address, Calldata) {
+        let calldata = self.contract.approve(spender, value).calldata().to_owned();
+        (*self.contract.address(), calldata)
+    }
+
     /// Transfer a raw amount of tokens.
     pub async fn transfer(&self, receiver: Address, amount: U256) -> Result<TxHash, Error> {
         let tx_hash = self
@@ -80,5 +87,17 @@ where
             .await?;
 
         Ok(tx_hash)
+    }
+
+    /// Transfer a raw amount of tokens.
+    /// Returns the `To` address and transaction calldata.
+    pub fn transfer_calldata(&self, receiver: Address, amount: U256) -> (Address, Calldata) {
+        let calldata = self
+            .contract
+            .transfer(receiver, amount)
+            .calldata()
+            .to_owned();
+
+        (*self.contract.address(), calldata)
     }
 }

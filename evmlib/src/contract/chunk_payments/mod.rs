@@ -1,9 +1,10 @@
 pub mod error;
 
 use crate::common;
-use crate::common::{Address, TxHash};
+use crate::common::{Address, Calldata, TxHash};
 use crate::contract::chunk_payments::error::Error;
 use crate::contract::chunk_payments::ChunkPaymentsContract::ChunkPaymentsContractInstance;
+use alloy::network::TransactionBuilder;
 use alloy::providers::{Network, Provider};
 use alloy::sol;
 use alloy::transports::Transport;
@@ -56,6 +57,33 @@ where
         &self,
         chunk_payments: I,
     ) -> Result<TxHash, Error> {
+        let (calldata, to) = self.pay_for_quotes_calldata(chunk_payments)?;
+
+        let transaction_request = self
+            .contract
+            .provider()
+            .transaction_request()
+            .with_to(to)
+            .with_input(calldata);
+
+        let tx_hash = self
+            .contract
+            .provider()
+            .send_transaction(transaction_request)
+            .await?
+            .watch()
+            .await?;
+
+        Ok(tx_hash)
+    }
+
+    /// Pay for quotes.
+    /// Input: (quote_id, reward_address, amount).
+    /// Returns the transaction calldata.
+    pub fn pay_for_quotes_calldata<I: IntoIterator<Item = common::QuotePayment>>(
+        &self,
+        chunk_payments: I,
+    ) -> Result<(Calldata, Address), Error> {
         let chunk_payments: Vec<ChunkPaymentsContract::ChunkPayment> = chunk_payments
             .into_iter()
             .map(|(hash, addr, amount)| ChunkPaymentsContract::ChunkPayment {
@@ -69,14 +97,12 @@ where
             return Err(Error::TransferLimitExceeded);
         }
 
-        let tx_hash = self
+        let calldata = self
             .contract
             .submitChunkPayments(chunk_payments)
-            .send()
-            .await?
-            .watch()
-            .await?;
+            .calldata()
+            .to_owned();
 
-        Ok(tx_hash)
+        Ok((calldata, *self.contract.address()))
     }
 }

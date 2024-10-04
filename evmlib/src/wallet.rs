@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::common::{Address, QuoteHash, QuotePayment, TxHash, U256};
+use crate::common::{Address, Calldata, QuoteHash, QuotePayment, TxHash, U256};
 use crate::contract::chunk_payments::{ChunkPayments, MAX_TRANSFERS_PER_TRANSACTION};
 use crate::contract::network_token::NetworkToken;
 use crate::contract::{chunk_payments, network_token};
@@ -195,6 +195,18 @@ pub async fn transfer_tokens(
     let provider = http_provider_with_wallet(network.rpc_url().clone(), wallet);
     let network_token = NetworkToken::new(*network.payment_token_address(), provider);
     network_token.transfer(receiver, amount).await
+}
+
+/// Transfer payment tokens from the supplied wallet to an address.
+/// Returns the `To` address and transaction calldata.
+pub fn transfer_tokens_calldata(
+    network: &Network,
+    receiver: Address,
+    amount: U256,
+) -> (Address, Calldata) {
+    let provider = http_provider(network.rpc_url().clone());
+    let network_token = NetworkToken::new(*network.payment_token_address(), provider);
+    network_token.transfer_calldata(receiver, amount)
 }
 
 /// Transfer native/gas tokens from the supplied wallet to an address.
