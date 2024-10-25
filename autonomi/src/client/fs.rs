@@ -6,16 +6,16 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use super::archive::{Archive, ArchiveAddr};
+use super::data::{DataAddr, GetError, PutError};
 use crate::client::archive::Metadata;
 use crate::client::data::CostError;
+use crate::client::payments::PaymentOption;
 use crate::client::Client;
 use bytes::Bytes;
 use sn_evm::EvmWallet;
 use sn_networking::target_arch::{Duration, SystemTime};
 use std::path::PathBuf;
-
-use super::archive::{Archive, ArchiveAddr};
-use super::data::{DataAddr, GetError, PutError};
 
 /// Errors that can occur during the file upload operation.
 #[cfg(feature = "fs")]
@@ -118,7 +118,9 @@ impl Client {
 
         let archive_serialized = archive.into_bytes()?;
 
-        let arch_addr = self.data_put(archive_serialized, wallet).await?;
+        let arch_addr = self
+            .data_put(archive_serialized, PaymentOption::from(wallet))
+            .await?;
 
         Ok(arch_addr)
     }
@@ -132,7 +134,7 @@ impl Client {
     ) -> Result<DataAddr, UploadError> {
         let data = tokio::fs::read(path).await?;
         let data = Bytes::from(data);
-        let addr = self.data_put(data, wallet).await?;
+        let addr = self.data_put(data, PaymentOption::from(wallet)).await?;
         Ok(addr)
     }
 

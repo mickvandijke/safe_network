@@ -15,6 +15,7 @@ use sn_protocol::storage::Chunk;
 use tokio::task::JoinSet;
 
 use super::data::{GetError, PutError};
+use crate::client::payments::PaymentOption;
 use crate::client::{ClientEvent, UploadSummary};
 use crate::{self_encryption::encrypt, Client};
 
@@ -63,7 +64,7 @@ impl Client {
     pub async fn private_data_put(
         &self,
         data: Bytes,
-        wallet: &EvmWallet,
+        payment_option: PaymentOption,
     ) -> Result<PrivateDataAccess, PutError> {
         let now = sn_networking::target_arch::Instant::now();
         let (data_map_chunk, chunks) = encrypt(data)?;

@@ -12,6 +12,7 @@ use crate::client::archive::ArchiveAddr;
 use crate::client::archive_private::PrivateArchiveAccess;
 use crate::client::data::GetError;
 use crate::client::data::PutError;
+use crate::client::payments::PaymentOption;
 use crate::client::registers::RegisterAddress;
 use crate::client::vault::VaultError;
 use crate::client::vault::{app_name_to_vault_content_type, VaultContentType, VaultSecretKey};
@@ -130,7 +131,7 @@ impl Client {
         let total_cost = self
             .write_bytes_to_vault(
                 bytes,
-                wallet,
+                PaymentOption::from(wallet),
                 secret_key,
                 *USER_DATA_VAULT_CONTENT_IDENTIFIER,
             )

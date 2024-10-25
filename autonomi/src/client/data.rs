@@ -13,6 +13,7 @@ use tokio::task::{JoinError, JoinSet};
 use std::collections::HashSet;
 use xor_name::XorName;
 
+use crate::client::payments::PaymentOption;
 use crate::client::{ClientEvent, UploadSummary};
 use crate::{self_encryption::encrypt, Client};
 use sn_evm::{Amount, AttoTokens};
@@ -107,7 +108,11 @@ impl Client {
     /// Upload a piece of data to the network.
     /// Returns the Data Address at which the data was stored.
     /// This data is publicly accessible.
-    pub async fn data_put(&self, data: Bytes, wallet: &EvmWallet) -> Result<DataAddr, PutError> {
+    pub async fn data_put(
+        &self,
+        data: Bytes,
+        payment_option: PaymentOption,
+    ) -> Result<DataAddr, PutError> {
         let now = sn_networking::target_arch::Instant::now();
         let (data_map_chunk, chunks) = encrypt(data)?;
         info!(
@@ -126,8 +131,8 @@ impl Client {
 
         // Pay for all chunks + data map chunk
         info!("Paying for {} addresses", xor_names.len());
-        let (payment_proofs, _free_chunks) = self
-            .pay(xor_names.into_iter(), wallet)
+        let payment_proofs = self
+            .pay_for_content_addrs(payment_option, xor_names.into_iter())
             .await
             .inspect_err(|err| error!("Error paying for data: {err:?}"))?;
 

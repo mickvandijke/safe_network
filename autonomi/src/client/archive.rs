@@ -25,6 +25,7 @@ use xor_name::XorName;
 /// The address of an archive on the network. Points to an [`Archive`].
 pub type ArchiveAddr = XorName;
 
+use crate::client::payments::PaymentOption;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -168,7 +169,7 @@ impl Client {
         let bytes = archive
             .into_bytes()
             .map_err(|e| PutError::Serialization(format!("Failed to serialize archive: {e:?}")))?;
-        self.data_put(bytes, wallet).await
+        self.data_put(bytes, PaymentOption::from(wallet)).await
     }
 
     /// Get the cost to upload an archive

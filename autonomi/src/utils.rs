@@ -2,7 +2,7 @@ use sn_evm::{PaymentQuote, ProofOfPayment, QuoteHash, TxHash};
 use std::collections::{BTreeMap, HashMap};
 use xor_name::XorName;
 
-pub fn payment_proof_from_quotes_and_payments(
+pub fn receipt_from_quotes_and_payments(
     quotes: &HashMap<XorName, PaymentQuote>,
     payments: &BTreeMap<QuoteHash, TxHash>,
 ) -> HashMap<XorName, ProofOfPayment> {

@@ -1,7 +1,7 @@
+use super::address::{addr_to_str, str_to_addr};
+use crate::client::payments::PaymentOption;
 use libp2p::Multiaddr;
 use wasm_bindgen::prelude::*;
-
-use super::address::{addr_to_str, str_to_addr};
 
 #[cfg(feature = "vault")]
 use super::vault::UserData;
@@ -49,7 +49,10 @@ impl JsClient {
     #[wasm_bindgen(js_name = dataPut)]
     pub async fn data_put(&self, data: Vec<u8>, wallet: &JsWallet) -> Result<String, JsError> {
         let data = crate::Bytes::from(data);
-        let xorname = self.0.data_put(data, &wallet.0).await?;
+        let xorname = self
+            .0
+            .data_put(data, PaymentOption::from(&wallet.0))
+            .await?;
 
         Ok(addr_to_str(xorname))
     }
@@ -138,6 +141,12 @@ mod archive {
 #[cfg(feature = "vault")]
 mod vault {
     use super::*;
+    use crate::client::external_signer::pay_for_quotes_calldata;
+    use crate::client::vault::key::{blst_to_blsttc, derive_secret_key_from_seed};
+    use crate::EvmNetwork;
+    use sn_evm::QuotePayment;
+    use wasm_bindgen::prelude::wasm_bindgen;
+    use wasm_bindgen::{JsError, JsValue};
 
     #[wasm_bindgen(js_name = UserData)]
     pub struct JsUserData(UserData);
@@ -213,12 +222,20 @@ mod vault {
             Ok(())
         }
     }
+
+    #[wasm_bindgen(js_name = vaultKeyFromSignature)]
+    pub fn vault_key_from_signature(signature: Vec<u8>) -> Result<SecretKeyJs, JsError> {
+        let blst_key = derive_secret_key_from_seed(&signature)?;
+        let vault_sk = blst_to_blsttc(&blst_key)?;
+        Ok(SecretKeyJs(vault_sk))
+    }
 }
 
 #[cfg(feature = "external-signer")]
 mod external_signer {
     use super::*;
-    use crate::payment_proof_from_quotes_and_payments;
+    use crate::client::payments::{PaymentOption, Receipt};
+    use crate::receipt_from_quotes_and_payments;
     use sn_evm::external_signer::{approve_to_spend_tokens_calldata, pay_for_quotes_calldata};
     use sn_evm::EvmNetwork;
     use sn_evm::ProofOfPayment;
@@ -240,16 +257,38 @@ mod external_signer {
             Ok(js_value)
         }
 
-        #[wasm_bindgen(js_name = dataPutWithProof)]
-        pub async fn data_put_with_proof_of_payment(
+        #[wasm_bindgen(js_name = dataPutWithReceipt)]
+        pub async fn data_put_with_receipt(
             &self,
             data: Vec<u8>,
-            proof: JsValue,
+            receipt: JsValue,
         ) -> Result<String, JsError> {
             let data = crate::Bytes::from(data);
-            let proof: HashMap<XorName, ProofOfPayment> = serde_wasm_bindgen::from_value(proof)?;
-            let xorname = self.0.data_put_with_proof_of_payment(data, proof).await?;
+            let receipt: Receipt = serde_wasm_bindgen::from_value(receipt)?;
+
+            let xorname = self
+                .0
+                .data_put(data, PaymentOption::Receipt(receipt))
+                .await?;
+
             Ok(addr_to_str(xorname))
+        }
+
+        #[cfg(feature = "vault")]
+        #[wasm_bindgen(js_name = putUserDataToVaultWithReceipt)]
+        pub async fn put_user_data_to_vault_with_receipt(
+            &self,
+            user_data: &JsUserData,
+            secret_key: &SecretKeyJs,
+            receipt: JsValue,
+        ) -> Result<(), JsError> {
+            let receipt: Receipt = serde_wasm_bindgen::from_value(receipt)?;
+
+            self.0
+                .put_user_data_to_vault(&secret_key.0, &wallet.0, user_data.0.clone())
+                .await?;
+
+            Ok(())
         }
     }
 
@@ -279,15 +318,15 @@ mod external_signer {
         Ok(js_value)
     }
 
-    #[wasm_bindgen(js_name = getPaymentProofFromQuotesAndPayments)]
-    pub fn get_payment_proof_from_quotes_and_payments(
+    #[wasm_bindgen(js_name = getReceiptFromQuotesAndPayments)]
+    pub fn get_receipt_from_quotes_and_payments(
         quotes: JsValue,
         payments: JsValue,
     ) -> Result<JsValue, JsError> {
         let quotes: HashMap<XorName, PaymentQuote> = serde_wasm_bindgen::from_value(quotes)?;
         let payments: BTreeMap<QuoteHash, TxHash> = serde_wasm_bindgen::from_value(payments)?;
-        let proof = payment_proof_from_quotes_and_payments(&quotes, &payments);
-        let js_value = serde_wasm_bindgen::to_value(&proof)?;
+        let receipt = receipt_from_quotes_and_payments(&quotes, &payments);
+        let js_value = serde_wasm_bindgen::to_value(&receipt)?;
         Ok(js_value)
     }
 }

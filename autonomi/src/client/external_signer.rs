@@ -12,20 +12,6 @@ use xor_name::XorName;
 pub use sn_evm::external_signer::*;
 
 impl Client {
-    /// Upload a piece of data to the network. This data will be self-encrypted.
-    /// Payment will not be done automatically as opposed to the regular `data_put`, so the proof of payment has to be provided.
-    /// Returns the Data Address at which the data was stored.
-    pub async fn data_put_with_proof_of_payment(
-        &self,
-        data: Bytes,
-        proof: HashMap<XorName, ProofOfPayment>,
-    ) -> Result<DataAddr, PutError> {
-        let (data_map_chunk, chunks, _) = encrypt_data(data)?;
-        self.upload_data_map(&proof, &data_map_chunk).await?;
-        self.upload_chunks(&chunks, &proof).await?;
-        Ok(*data_map_chunk.address().xorname())
-    }
-
     /// Get quotes for data.
     /// Returns a cost map, data payments to be executed and a list of free (already paid for) chunks.
     pub async fn get_quotes_for_data(
@@ -51,40 +37,6 @@ impl Client {
 
         let (quote_payments, free_chunks) = extract_quote_payments(&cost_map);
         Ok((cost_map, quote_payments, free_chunks))
-    }
-
-    async fn upload_data_map(
-        &self,
-        payment_proofs: &HashMap<XorName, ProofOfPayment>,
-        data_map_chunk: &Chunk,
-    ) -> Result<(), PutError> {
-        let map_xor_name = data_map_chunk.name();
-
-        if let Some(proof) = payment_proofs.get(map_xor_name) {
-            debug!("Uploading data map chunk: {map_xor_name:?}");
-            self.chunk_upload_with_payment(data_map_chunk.clone(), proof.clone())
-                .await
-                .inspect_err(|err| error!("Error uploading data map chunk: {err:?}"))
-        } else {
-            Ok(())
-        }
-    }
-
-    async fn upload_chunks(
-        &self,
-        chunks: &[Chunk],
-        payment_proofs: &HashMap<XorName, ProofOfPayment>,
-    ) -> Result<(), PutError> {
-        debug!("Uploading {} chunks", chunks.len());
-        for chunk in chunks {
-            if let Some(proof) = payment_proofs.get(chunk.name()) {
-                let address = *chunk.address();
-                self.chunk_upload_with_payment(chunk.clone(), proof.clone())
-                    .await
-                    .inspect_err(|err| error!("Error uploading chunk {address:?} :{err:?}"))?;
-            }
-        }
-        Ok(())
     }
 }
 

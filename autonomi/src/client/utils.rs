@@ -28,7 +28,7 @@ use super::{
     Client,
 };
 use crate::self_encryption::DataMapLevel;
-use crate::utils::payment_proof_from_quotes_and_payments;
+use crate::utils::receipt_from_quotes_and_payments;
 
 impl Client {
     /// Fetch and decrypt all chunks in the data map.
@@ -166,7 +166,7 @@ impl Client {
             .await
             .map_err(|err| PayError::from(err.0))?;
 
-        let proofs = payment_proof_from_quotes_and_payments(&cost_map, &payments);
+        let proofs = receipt_from_quotes_and_payments(&cost_map, &payments);
 
         trace!(
             "Chunk payments of {} chunks completed. {} chunks were free / already paid for",
