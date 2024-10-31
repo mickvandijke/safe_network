@@ -7,6 +7,9 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{driver::PendingGetClosestType, SwarmDriver};
+use rand::distributions::Alphanumeric;
+use rand::Rng;
+use std::sync::{LazyLock, Mutex};
 use tokio::time::Duration;
 
 use crate::target_arch::Instant;
@@ -14,6 +17,49 @@ use crate::target_arch::Instant;
 /// The default interval at which NetworkDiscovery is triggered. The interval is increased as more peers are added to the
 /// routing table.
 pub(crate) const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(15);
+
+static TIMER: LazyLock<Mutex<Timer>> = LazyLock::new(|| Mutex::new(Timer::new()));
+
+struct Timer {
+    id: String,
+    last_call: Option<Instant>,
+}
+
+impl Timer {
+    // Creates a new Timer
+    fn new() -> Self {
+        Timer {
+            id: Self::generate_random_string(),
+            last_call: None,
+        }
+    }
+
+    fn generate_random_string() -> String {
+        let rng = rand::thread_rng();
+        let random_string: String = rng
+            .sample_iter(&Alphanumeric)
+            .take(5)
+            .map(char::from)
+            .collect();
+        random_string
+    }
+
+    // Call this method each time you want to measure the time since the last call
+    fn time_since_last_call(&mut self) {
+        let now = Instant::now();
+
+        // Check if this is the first call
+        if let Some(last) = self.last_call {
+            let duration = now.duration_since(last);
+            println!("ID: {}. Time since last call: {duration:?}", &self.id);
+        } else {
+            println!("ID: {}. This is the first call.", &self.id);
+        }
+
+        // Update the last call time
+        self.last_call = Some(now);
+    }
+}
 
 impl SwarmDriver {
     /// This functions triggers network discovery based on when the last peer was added to the RT and the number of
@@ -23,6 +69,7 @@ impl SwarmDriver {
     }
 
     pub(crate) fn trigger_network_discovery(&mut self) {
+        TIMER.lock().expect("Locked!").time_since_last_call();
         let now = Instant::now();
         // Fetches the candidates and also generates new candidates
         for addr in self.network_discovery.candidates() {
