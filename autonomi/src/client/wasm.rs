@@ -78,11 +78,24 @@ impl JsClient {
     /// Upload a chunk to the network.
     ///
     /// Returns the hex encoded address of the chunk.
-    ///
-    /// This is not yet implemented.
     #[wasm_bindgen(js_name = putChunk)]
-    pub async fn put_chunk(&self, _data: Vec<u8>, _wallet: &JsWallet) -> Result<String, JsError> {
-        async { unimplemented!() }.await
+    pub async fn put_chunk(&self, chunk: JsValue, receipt: JsValue) -> Result<(), JsError> {
+        let chunk: Chunk = serde_wasm_bindgen::from_value(chunk)?;
+        let receipt: Receipt = serde_wasm_bindgen::from_value(receipt)?;
+
+        let proof_of_payment =
+            receipt
+                .get(chunk.address.xorname())
+                .cloned()
+                .ok_or(JsError::new(
+                    "Receipt does not contain the proof of payment for this chunk",
+                ))?;
+
+        self.0
+            .chunk_upload_with_payment(chunk, proof_of_payment)
+            .await?;
+
+        Ok(())
     }
 
     /// Fetch the chunk from the network.
