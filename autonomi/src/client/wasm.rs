@@ -78,11 +78,25 @@ impl JsClient {
     /// Upload a chunk to the network.
     ///
     /// Returns the hex encoded address of the chunk.
-    ///
-    /// This is not yet implemented.
-    #[wasm_bindgen(js_name = putChunk)]
-    pub async fn put_chunk(&self, _data: Vec<u8>, _wallet: &JsWallet) -> Result<String, JsError> {
-        async { unimplemented!() }.await
+    #[wasm_bindgen(js_name = putChunkWithReceipt)]
+    pub async fn put_chunk_with_receipt(
+        &self,
+        chunk: Vec<u8>,
+        receipt: JsValue,
+    ) -> Result<(), JsError> {
+        let chunk_bytes = crate::Bytes::from(chunk);
+        let chunk = Chunk::new(chunk_bytes);
+        let receipt: Receipt = serde_wasm_bindgen::from_value(receipt)?;
+
+        let proof_of_payment = receipt.get(chunk.name()).cloned().ok_or(JsError::new(
+            "Receipt does not contain the proof of payment for this chunk",
+        ))?;
+
+        self.0
+            .chunk_upload_with_payment(chunk, proof_of_payment)
+            .await?;
+
+        Ok(())
     }
 
     /// Fetch the chunk from the network.
@@ -633,7 +647,7 @@ mod vault {
 #[cfg(feature = "external-signer")]
 mod external_signer {
     use super::*;
-    use crate::client::address::str_to_addr;
+    use crate::client::address::{addr_to_str, str_to_addr};
     use crate::client::external_signer::encrypt_data;
     use crate::client::payment::Receipt;
     use crate::receipt_from_quotes_and_payments;
@@ -701,13 +715,13 @@ mod external_signer {
     /// # Example
     ///
     /// ```js
-    /// const [dataMapChunk, dataChunks, dataMapChunkAddress, dataChunkAddresses] = client.encryptData(data);
+    /// const { dataMapChunk, dataChunks, dataMapChunkAddress, dataChunkAddresses } = client.encryptData(data);
     /// ``
     #[wasm_bindgen(js_name = encryptData)]
     pub fn encrypt(data: Vec<u8>) -> Result<JsValue, JsError> {
         let data = crate::Bytes::from(data);
         let result = encrypt_data(data)?;
-        let map_xor_name = *result.0.address().xorname();
+        let map_xor_name = *result.0.name();
         let mut xor_names = vec![];
 
         for chunk in &result.1 {
@@ -812,6 +826,15 @@ pub fn evm_network_custom(
         evmlib::utils::get_evm_network(&rpc_url, &payment_token_address, &data_payments_address);
     let js_value = serde_wasm_bindgen::to_value(&evm_network)?;
     Ok(js_value)
+}
+
+/// Get the chunk XOR name from bytes.
+#[wasm_bindgen(js_name = bytesToChunkName)]
+pub fn bytes_to_chunk_name(data: Vec<u8>) -> Result<String, JsError> {
+    let data = crate::Bytes::from(data);
+    let chunk = Chunk::new(data);
+
+    Ok(addr_to_str(*chunk.name()))
 }
 
 #[wasm_bindgen(js_name = Wallet)]
