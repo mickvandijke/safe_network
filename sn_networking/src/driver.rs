@@ -433,14 +433,15 @@ impl NetworkBuilder {
             .listen_on(addr_quic)
             .expect("Multiaddr should be supported by our configured transports");
 
-        // Listen on WebSocket
-        #[cfg(any(feature = "websockets", target_arch = "wasm32"))]
+        // Listen on WebRTC
+        #[cfg(any(feature = "webrtc", target_arch = "wasm32"))]
         {
-            let addr_ws = Multiaddr::from(listen_socket_addr.ip())
-                .with(Protocol::Tcp(listen_socket_addr.port()))
-                .with(Protocol::Ws("/".into()));
+            let addr_wrtc = Multiaddr::from(listen_socket_addr.ip())
+                .with(Protocol::Udp(listen_socket_addr.port()))
+                .with(Protocol::WebRTCDirect);
+
             swarm_driver
-                .listen_on(addr_ws)
+                .listen_on(addr_wrtc)
                 .expect("Multiaddr should be supported by our configured transports");
         }
 

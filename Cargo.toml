@@ -22,6 +22,7 @@ members = [
     "sn_transfers",
     "test_utils",
     "token_supplies",
+    "webrtc-websys"
 ]
 
 [workspace.lints.rust]
