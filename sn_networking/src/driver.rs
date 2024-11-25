@@ -6,6 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::client::driver::SwarmDriverClient;
 use crate::{
     bootstrap::{ContinuousBootstrap, BOOTSTRAP_INTERVAL},
     circular_vec::CircularVec,
@@ -54,8 +55,8 @@ use sn_protocol::{
     messages::{ChunkProof, Nonce, Request, Response},
     storage::{try_deserialize_record, RetryStrategy},
     version::{
-        get_key_version_str, IDENTIFY_CLIENT_VERSION_STR, IDENTIFY_NODE_VERSION_STR,
-        IDENTIFY_PROTOCOL_STR, REQ_RESPONSE_VERSION_STR,
+        get_key_version_str, IDENTIFY_NODE_VERSION_STR, IDENTIFY_PROTOCOL_STR,
+        REQ_RESPONSE_VERSION_STR,
     },
     NetworkAddress, PrettyPrintKBucketKey, PrettyPrintRecordKey,
 };
@@ -456,7 +457,9 @@ impl NetworkBuilder {
     }
 
     /// Same as `build_node` API but creates the network components in client mode
-    pub fn build_client(self) -> Result<(Network, mpsc::Receiver<NetworkEvent>, SwarmDriver)> {
+    pub fn build_client(
+        self,
+    ) -> Result<(Network, mpsc::Receiver<NetworkEvent>, SwarmDriverClient)> {
         // Create a Kademlia behaviour for client mode, i.e. set req/resp protocol
         // to outbound-only mode and don't listen on any address
         let mut kad_cfg = kad::Config::new(KAD_STREAM_PROTOCOL_ID); // default query timeout is 60 secs
@@ -471,17 +474,51 @@ impl NetworkBuilder {
             // How many nodes _should_ store data.
             .set_replication_factor(REPLICATION_FACTOR);
 
-        let (network, net_event_recv, driver) = self.build(
-            kad_cfg,
-            None,
-            true,
-            ProtocolSupport::Outbound,
-            IDENTIFY_CLIENT_VERSION_STR.to_string(),
-            #[cfg(feature = "upnp")]
-            false,
-        )?;
+        let (network_event_sender, network_event_receiver) = mpsc::channel(NETWORKING_CHANNEL_SIZE);
+        let (network_swarm_cmd_sender, network_swarm_cmd_receiver) =
+            mpsc::channel(NETWORKING_CHANNEL_SIZE);
+        let (local_swarm_cmd_sender, local_swarm_cmd_receiver) =
+            mpsc::channel(NETWORKING_CHANNEL_SIZE);
 
-        Ok((network, net_event_recv, driver))
+        let peer_id = PeerId::from(self.keypair.public());
+
+        let network = Network::new(
+            network_swarm_cmd_sender.clone(),
+            local_swarm_cmd_sender.clone(),
+            peer_id,
+            self.keypair,
+        );
+
+        let mut swarm = libp2p::SwarmBuilder::with_new_identity()
+            .with_wasm_bindgen()
+            .with_other_transport(|key| {
+                libp2p_webrtc_websys::Transport::new(libp2p_webrtc_websys::Config::new(&key))
+            })?
+            .with_behaviour(|_| ping::Behaviour::new(ping::Config::new()))?
+            .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(30)))
+            .build();
+
+        // todo: set this based on feature
+        let local = true;
+
+        let driver = SwarmDriverClient {
+            swarm,
+            local,
+            network_cmd_sender: network_swarm_cmd_sender,
+            local_cmd_sender: local_swarm_cmd_sender,
+            local_cmd_receiver: local_swarm_cmd_receiver,
+            network_cmd_receiver: network_swarm_cmd_receiver,
+            event_sender: network_event_sender,
+            pending_get_closest_peers: Default::default(),
+            pending_requests: Default::default(),
+            pending_get_record: Default::default(),
+            dialed_peers: CircularVec::new(255),
+            bootstrap_peers: Default::default(),
+            live_connected_peers: Default::default(),
+            network_discovery: NetworkDiscovery::new(&peer_id),
+        };
+
+        Ok((network, network_event_receiver, driver))
     }
 
     /// Private helper to create the network components with the provided config and req/res behaviour

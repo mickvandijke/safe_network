@@ -12,9 +12,10 @@ describe('autonomi', function () {
 
     let client;
     let wallet;
+
     before(async () => {
         await init();
-        atnm.logInit("sn_networking=warn,autonomi=trace");
+        atnm.logInit("libp2p_webrtc_websys=trace,libp2p_webrtc=trace,sn_networking=trace,autonomi=trace");
         client = await atnm.Client.connect([window.peer_addr]);
         wallet = atnm.getFundedWallet();
     });
@@ -45,12 +46,12 @@ describe('autonomi', function () {
         const data = randomData(32);
         const addr = await client.putData(data, wallet);
         const archive = new atnm.Archive();
-        archive.addFile("foo", addr, atnm.createMetadata(BigInt(data.length)));
+        archive.addNewFile("foo", addr);
         const archiveAddr = await client.putArchive(archive, wallet);
 
         const archiveFetched = await client.getArchive(archiveAddr);
 
-        assert.deepEqual(archive.map(), archiveFetched.map());
+        assert.deepEqual(archive, archiveFetched);
     });
 
     it('writes archive to vault and fetches it', async () => {
@@ -59,7 +60,7 @@ describe('autonomi', function () {
         const secretKey = atnm.genSecretKey();
 
         const archive = new atnm.Archive();
-        archive.addFile('foo', addr, atnm.createMetadata(BigInt(data.length)));
+        archive.addNewFile('foo', addr);
         const archiveAddr = await client.putArchive(archive, wallet);
 
         const userData = new atnm.UserData();

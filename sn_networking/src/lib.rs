@@ -11,6 +11,7 @@ extern crate tracing;
 
 mod bootstrap;
 mod circular_vec;
+mod client;
 mod cmd;
 mod driver;
 mod error;

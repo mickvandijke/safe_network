@@ -1,119 +1,28 @@
-// Copyright 2024 MaidSafe.net limited.
-//
-// This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
-// Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
-// under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied. Please review the Licences for the specific language governing
-// permissions and limitations relating to use of the SAFE Network Software.
-
-use crate::{
-    event::NodeEvent, multiaddr_get_ip, multiaddr_is_global, multiaddr_strip_p2p,
-    relay_manager::is_a_relayed_peer, target_arch::Instant, NetworkEvent, Result, SwarmDriver,
-};
+use crate::client::driver::SwarmDriverClient;
+use crate::event::NodeEvent;
+use crate::relay_manager::is_a_relayed_peer;
+use crate::{multiaddr_is_global, multiaddr_strip_p2p, NetworkEvent};
+use libp2p::kad::K_VALUE;
 #[cfg(feature = "local")]
 use libp2p::mdns;
-#[cfg(feature = "open-metrics")]
-use libp2p::metrics::Recorder;
-use libp2p::{
-    kad::K_VALUE,
-    multiaddr::Protocol,
-    swarm::{
-        dial_opts::{DialOpts, PeerCondition},
-        ConnectionId, DialError, SwarmEvent,
-    },
-    Multiaddr, PeerId, TransportError,
-};
+use libp2p::multiaddr::Protocol;
+use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
+use libp2p::swarm::{DialError, SwarmEvent};
+use libp2p::{Multiaddr, TransportError};
 use sn_protocol::version::{IDENTIFY_NODE_VERSION_STR, IDENTIFY_PROTOCOL_STR};
 use std::collections::HashSet;
-use tokio::time::Duration;
+use std::time::{Duration, Instant};
 
-impl SwarmDriver {
-    /// Handle `SwarmEvents`
-    pub(crate) fn handle_swarm_events(&mut self, event: SwarmEvent<NodeEvent>) -> Result<()> {
-        // This does not record all the events. `SwarmEvent::Behaviour(_)` are skipped. Hence `.record()` has to be
-        // called individually on each behaviour.
-        #[cfg(feature = "open-metrics")]
-        if let Some(metrics_recorder) = &self.metrics_recorder {
-            metrics_recorder.record(&event);
-        }
-        let start = Instant::now();
-        let event_string;
+impl SwarmDriverClient {
+    pub(crate) fn handle_swarm_events(
+        &mut self,
+        event: SwarmEvent<NodeEvent>,
+    ) -> crate::error::Result<()> {
         match event {
-            SwarmEvent::Behaviour(NodeEvent::MsgReceived(event)) => {
-                event_string = "msg_received";
-                if let Err(e) = self.handle_req_resp_events(event) {
-                    warn!("MsgReceivedError: {e:?}");
-                }
-            }
             SwarmEvent::Behaviour(NodeEvent::Kademlia(kad_event)) => {
-                #[cfg(feature = "open-metrics")]
-                if let Some(metrics_recorder) = &self.metrics_recorder {
-                    metrics_recorder.record(&kad_event);
-                }
-                event_string = "kad_event";
                 self.handle_kad_event(kad_event)?;
             }
-            SwarmEvent::Behaviour(NodeEvent::RelayClient(event)) => {
-                event_string = "relay_client_event";
-
-                info!(?event, "relay client event");
-
-                if let libp2p::relay::client::Event::ReservationReqAccepted {
-                    relay_peer_id, ..
-                } = *event
-                {
-                    self.relay_manager
-                        .on_successful_reservation_by_client(&relay_peer_id, &mut self.swarm);
-                }
-            }
-            #[cfg(feature = "upnp")]
-            SwarmEvent::Behaviour(NodeEvent::Upnp(upnp_event)) => {
-                #[cfg(feature = "open-metrics")]
-                if let Some(metrics_recorder) = &self.metrics_recorder {
-                    metrics_recorder.record(&upnp_event);
-                }
-                event_string = "upnp_event";
-                info!(?upnp_event, "UPnP event");
-                if let libp2p::upnp::Event::GatewayNotFound = upnp_event {
-                    warn!("UPnP is not enabled/supported on the gateway. Please rerun without the `--upnp` flag");
-                    self.send_event(NetworkEvent::TerminateNode {
-                        reason: crate::event::TerminateNodeReason::UpnpGatewayNotFound,
-                    });
-                }
-            }
-
-            SwarmEvent::Behaviour(NodeEvent::RelayServer(event)) => {
-                #[cfg(feature = "open-metrics")]
-                if let Some(metrics_recorder) = &self.metrics_recorder {
-                    metrics_recorder.record(&(*event));
-                }
-
-                event_string = "relay_server_event";
-
-                info!(?event, "relay server event");
-
-                match *event {
-                    libp2p::relay::Event::ReservationReqAccepted {
-                        src_peer_id,
-                        renewed: _,
-                    } => {
-                        self.relay_manager
-                            .on_successful_reservation_by_server(src_peer_id);
-                    }
-                    libp2p::relay::Event::ReservationTimedOut { src_peer_id } => {
-                        self.relay_manager.on_reservation_timeout(src_peer_id);
-                    }
-                    _ => {}
-                }
-            }
             SwarmEvent::Behaviour(NodeEvent::Identify(iden)) => {
-                // Record the Identify event for metrics if the feature is enabled.
-                #[cfg(feature = "open-metrics")]
-                if let Some(metrics_recorder) = &self.metrics_recorder {
-                    metrics_recorder.record(&(*iden));
-                }
-                event_string = "identify";
-
                 match *iden {
                     libp2p::identify::Event::Received {
                         peer_id,
@@ -172,16 +81,6 @@ impl SwarmDriver {
                             .iter()
                             .any(|(_ilog2, peers)| peers.contains(&peer_id));
 
-                        // Do not use an `already relayed` peer as `potential relay candidate`.
-                        if !has_relayed && !is_bootstrap_peer && !self.is_client {
-                            debug!("Adding candidate relay server {peer_id:?}, it's not a bootstrap node");
-                            self.relay_manager.add_potential_candidates(
-                                &peer_id,
-                                &addrs,
-                                &info.protocols,
-                            );
-                        }
-
                         // When received an identify from un-dialed peer, try to dial it
                         // The dial shall trigger the same identify to be sent again and confirm
                         // peer is external accessible, hence safe to be added into RT.
@@ -236,10 +135,6 @@ impl SwarmDriver {
                                 warn!(%peer_id, ?addrs, "dialing error: {err:?}");
                             }
 
-                            trace!(
-                                "SwarmEvent handled in {:?}: {event_string:?}",
-                                start.elapsed()
-                            );
                             return Ok(());
                         }
 
@@ -266,10 +161,6 @@ impl SwarmDriver {
                                     .add_address(&peer_id, multiaddr); // TODO: leads to closure error
                             }
                         }
-                        trace!(
-                            "SwarmEvent handled in {:?}: {event_string:?}",
-                            start.elapsed()
-                        );
                     }
                     // Log the other Identify events.
                     libp2p::identify::Event::Sent { .. } => debug!("identify: {iden:?}"),
@@ -279,7 +170,6 @@ impl SwarmDriver {
             }
             #[cfg(feature = "local")]
             SwarmEvent::Behaviour(NodeEvent::Mdns(mdns_event)) => {
-                event_string = "mdns";
                 match *mdns_event {
                     mdns::Event::Discovered(list) => {
                         if self.local {
@@ -305,25 +195,10 @@ impl SwarmDriver {
                 mut address,
                 listener_id,
             } => {
-                event_string = "new listen addr";
-
                 let local_peer_id = *self.swarm.local_peer_id();
                 // Make sure the address ends with `/p2p/<local peer ID>`. In case of relay, `/p2p` is already there.
                 if address.iter().last() != Some(Protocol::P2p(local_peer_id)) {
                     address.push(Protocol::P2p(local_peer_id));
-                }
-
-                // Trigger server mode if we're not a client and we should not add our own address if we're behind
-                // home network.
-                if !self.is_client && !self.is_behind_home_network {
-                    if self.local {
-                        // all addresses are effectively external here...
-                        // this is needed for Kad Mode::Server
-                        self.swarm.add_external_address(address.clone());
-                    } else {
-                        self.external_address_manager
-                            .add_listen_addr_as_external_address(address.clone(), &mut self.swarm);
-                    }
                 }
 
                 self.send_event(NetworkEvent::NewListenAddr(address.clone()));
@@ -336,17 +211,13 @@ impl SwarmDriver {
                 addresses,
                 reason,
             } => {
-                event_string = "listener closed";
                 info!("Listener {listener_id:?} with add {addresses:?} has been closed for {reason:?}");
-                self.relay_manager
-                    .on_listener_closed(&listener_id, &mut self.swarm);
             }
             SwarmEvent::IncomingConnection {
                 connection_id,
                 local_addr,
                 send_back_addr,
             } => {
-                event_string = "incoming";
                 debug!("IncomingConnection ({connection_id:?}) with local_addr: {local_addr:?} send_back_addr: {send_back_addr:?}");
             }
             SwarmEvent::ConnectionEstablished {
@@ -357,8 +228,7 @@ impl SwarmDriver {
                 concurrent_dial_errors,
                 established_in,
             } => {
-                event_string = "ConnectionEstablished";
-                debug!(%peer_id, num_established, ?concurrent_dial_errors, "ConnectionEstablished ({connection_id:?}) in {established_in:?}: {}", endpoint_str(&endpoint));
+                debug!(%peer_id, num_established, ?concurrent_dial_errors, "ConnectionEstablished ({connection_id:?}) in {established_in:?}");
 
                 let _ = self.live_connected_peers.insert(
                     connection_id,
@@ -381,8 +251,7 @@ impl SwarmDriver {
                 num_established,
                 connection_id,
             } => {
-                event_string = "ConnectionClosed";
-                debug!(%peer_id, ?connection_id, ?cause, num_established, "ConnectionClosed: {}", endpoint_str(&endpoint));
+                debug!(%peer_id, ?connection_id, ?cause, num_established, "ConnectionClosed");
                 let _ = self.live_connected_peers.remove(&connection_id);
                 self.record_connection_metrics();
             }
@@ -391,7 +260,6 @@ impl SwarmDriver {
                 error,
                 connection_id,
             } => {
-                event_string = "OutgoingConnErr";
                 warn!("OutgoingConnectionError to {failed_peer_id:?} on {connection_id:?} - {error:?}");
                 let _ = self.live_connected_peers.remove(&connection_id);
                 self.record_connection_metrics();
@@ -431,25 +299,6 @@ impl SwarmDriver {
                                         .bootstrap_peers
                                         .iter()
                                         .any(|(_ilog2, peers)| peers.contains(&failed_peer_id));
-
-                                    if is_bootstrap_peer
-                                        && self.peers_in_rt < self.bootstrap_peers.len()
-                                    {
-                                        warn!("OutgoingConnectionError: On bootstrap peer {failed_peer_id:?}, while still in bootstrap mode, ignoring");
-                                        there_is_a_serious_issue = false;
-                                    } else {
-                                        // It is really difficult to match this error, due to being eg:
-                                        // Custom { kind: Other, error: Left(Left(Os { code: 61, kind: ConnectionRefused, message: "Connection refused" })) }
-                                        // if we can match that, let's. But meanwhile we'll check the message
-                                        let error_msg = format!("{err:?}");
-                                        if problematic_errors
-                                            .iter()
-                                            .any(|err| error_msg.contains(err))
-                                        {
-                                            warn!("Problematic error encountered: {error_msg}");
-                                            there_is_a_serious_issue = true;
-                                        }
-                                    }
                                 }
                             }
                         }
@@ -473,10 +322,7 @@ impl SwarmDriver {
                     }
                     DialError::LocalPeerId { endpoint, .. } => {
                         // This is actually _us_ So we should remove this from the RT
-                        error!(
-                            "OutgoingConnectionError: LocalPeerId: {}",
-                            endpoint_str(&endpoint)
-                        );
+                        error!("OutgoingConnectionError: LocalPeerId");
                         true
                     }
                     DialError::WrongPeerId { obtained, endpoint } => {
@@ -512,7 +358,6 @@ impl SwarmDriver {
                 send_back_addr,
                 error,
             } => {
-                event_string = "Incoming ConnErr";
                 // Only log as ERROR if the the connection is not adjacent to an already established connection id from
                 // the same IP address.
                 //
@@ -536,214 +381,19 @@ impl SwarmDriver {
                 peer_id,
                 connection_id,
             } => {
-                event_string = "Dialing";
                 debug!("Dialing {peer_id:?} on {connection_id:?}");
             }
-            SwarmEvent::NewExternalAddrCandidate { address } => {
-                event_string = "NewExternalAddrCandidate";
-
-                if !self.is_client
-                    // If we are behind a home network, then our IP is returned here. We should be only having
-                    // relay server as our external address
-                    // todo: can our relay address be reported here? If so, maybe we should add them.
-                    && !self.is_behind_home_network
-                    // When running a local network, we just need the local listen address to work.
-                    && !self.local
-                {
-                    self.external_address_manager
-                        .add_external_address_candidate(address, &mut self.swarm);
-                }
-            }
             SwarmEvent::ExternalAddrConfirmed { address } => {
-                event_string = "ExternalAddrConfirmed";
                 info!(%address, "external address: confirmed");
             }
             SwarmEvent::ExternalAddrExpired { address } => {
-                event_string = "ExternalAddrExpired";
                 info!(%address, "external address: expired");
             }
             other => {
-                event_string = "Other";
-
                 debug!("SwarmEvent has been ignored: {other:?}")
             }
         }
-        self.remove_outdated_connections();
 
-        self.log_handling(event_string.to_string(), start.elapsed());
-
-        trace!(
-            "SwarmEvent handled in {:?}: {event_string:?}",
-            start.elapsed()
-        );
         Ok(())
-    }
-
-    // if target bucket is full, remove a bootstrap node if presents.
-    fn remove_bootstrap_from_full(&mut self, peer_id: PeerId) {
-        let mut shall_removed = None;
-
-        if let Some(kbucket) = self.swarm.behaviour_mut().kademlia.kbucket(peer_id) {
-            if kbucket.num_entries() >= K_VALUE.into() {
-                if let Some(peers) = self.bootstrap_peers.get(&kbucket.range().0.ilog2()) {
-                    for peer_entry in kbucket.iter() {
-                        if peers.contains(peer_entry.node.key.preimage()) {
-                            shall_removed = Some(*peer_entry.node.key.preimage());
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        if let Some(to_be_removed_bootstrap) = shall_removed {
-            info!("Bootstrap node {to_be_removed_bootstrap:?} to be replaced by peer {peer_id:?}");
-            let entry = self
-                .swarm
-                .behaviour_mut()
-                .kademlia
-                .remove_peer(&to_be_removed_bootstrap);
-            if let Some(removed_peer) = entry {
-                self.update_on_peer_removal(*removed_peer.node.key.preimage());
-            }
-        }
-    }
-
-    // Remove outdated connection to a peer if it is not in the RT.
-    // Optionally force remove all the connections for a provided peer.
-    fn remove_outdated_connections(&mut self) {
-        // To avoid this being called too frequenctly, only carry out prunning intervally.
-        if Instant::now() > self.last_connection_pruning_time + Duration::from_secs(30) {
-            return;
-        }
-        self.last_connection_pruning_time = Instant::now();
-
-        let mut removed_conns = 0;
-        self.live_connected_peers.retain(|connection_id, (peer_id, timeout_time)| {
-
-            // skip if timeout isn't reached yet
-            if Instant::now() < *timeout_time {
-                return true; // retain peer
-            }
-
-            // ignore if peer is present in our RT
-            if let Some(kbucket) = self.swarm.behaviour_mut().kademlia.kbucket(*peer_id) {
-                if kbucket
-                    .iter()
-                    .any(|peer_entry| *peer_id == *peer_entry.node.key.preimage())
-                {
-                    return true; // retain peer
-                }
-            }
-
-            // skip if the peer is a relay server that we're connected to
-            if self.relay_manager.keep_alive_peer(peer_id) {
-                return true; // retain peer
-            }
-
-            // actually remove connection
-            let result = self.swarm.close_connection(*connection_id);
-            debug!("Removed outdated connection {connection_id:?} to {peer_id:?} with result: {result:?}");
-
-            removed_conns += 1;
-
-            // do not retain this connection as it has been closed
-            false
-        });
-
-        if removed_conns == 0 {
-            return;
-        }
-
-        self.record_connection_metrics();
-
-        debug!(
-            "Current libp2p peers pool stats is {:?}",
-            self.swarm.network_info()
-        );
-        debug!(
-            "Removed {removed_conns} outdated live connections, still have {} left.",
-            self.live_connected_peers.len()
-        );
-    }
-
-    /// Record the metrics on update of connection state.
-    fn record_connection_metrics(&self) {
-        #[cfg(feature = "open-metrics")]
-        if let Some(metrics) = &self.metrics_recorder {
-            metrics
-                .open_connections
-                .set(self.live_connected_peers.len() as i64);
-            metrics
-                .connected_peers
-                .set(self.swarm.connected_peers().count() as i64);
-        }
-    }
-
-    /// Insert the latest established connection id into the list.
-    fn insert_latest_established_connection_ids(&mut self, id: ConnectionId, addr: &Multiaddr) {
-        let Ok(id) = format!("{id}").parse::<usize>() else {
-            return;
-        };
-        let Some(ip_addr) = multiaddr_get_ip(addr) else {
-            return;
-        };
-
-        let _ = self
-            .latest_established_connection_ids
-            .insert(id, (ip_addr, Instant::now()));
-
-        while self.latest_established_connection_ids.len() >= 50 {
-            // remove the oldest entry
-            let Some(oldest_key) = self
-                .latest_established_connection_ids
-                .iter()
-                .min_by_key(|(_, (_, time))| *time)
-                .map(|(id, _)| *id)
-            else {
-                break;
-            };
-
-            self.latest_established_connection_ids.remove(&oldest_key);
-        }
-    }
-
-    // Do not log IncomingConnectionError if the ConnectionId is adjacent to an already established connection.
-    fn should_we_log_incoming_connection_error(&self, id: ConnectionId, addr: &Multiaddr) -> bool {
-        let Ok(id) = format!("{id}").parse::<usize>() else {
-            return true;
-        };
-        let Some(ip_addr) = multiaddr_get_ip(addr) else {
-            return true;
-        };
-
-        // This should prevent most of the cases where we get an IncomingConnectionError for a peer with multiple
-        // transports/listen addrs.
-        if let Some((established_ip_addr, _)) =
-            self.latest_established_connection_ids.get(&(id - 1))
-        {
-            if established_ip_addr == &ip_addr {
-                return false;
-            }
-        } else if let Some((established_ip_addr, _)) =
-            self.latest_established_connection_ids.get(&(id + 1))
-        {
-            if established_ip_addr == &ip_addr {
-                return false;
-            }
-        }
-
-        true
-    }
-}
-
-/// Helper function to print formatted connection role info.
-fn endpoint_str(endpoint: &libp2p::core::ConnectedPoint) -> String {
-    match endpoint {
-        libp2p::core::ConnectedPoint::Dialer { address, .. } => {
-            format!("outgoing ({address})")
-        }
-        libp2p::core::ConnectedPoint::Listener { send_back_addr, .. } => {
-            format!("incoming ({send_back_addr})")
-        }
     }
 }
