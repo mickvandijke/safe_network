@@ -187,8 +187,8 @@ fn build_binary(bin_type: &ReleaseType) -> Result<PathBuf> {
     if cfg!(feature = "network-contacts") {
         args.extend(["--features", "network-contacts"]);
     }
-    if cfg!(feature = "websockets") {
-        args.extend(["--features", "websockets"]);
+    if cfg!(feature = "webrtc") {
+        args.extend(["--features", "webrtc"]);
     }
     if cfg!(feature = "open-metrics") {
         args.extend(["--features", "open-metrics"]);

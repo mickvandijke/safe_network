@@ -1,14 +1,14 @@
 #[cfg(feature = "open-metrics")]
 use crate::MetricsRegistries;
-#[cfg(feature = "websockets")]
+#[cfg(feature = "webrtc")]
 use futures::future::Either;
-#[cfg(feature = "websockets")]
-use libp2p::{core::upgrade, noise, yamux};
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport},
     identity::Keypair,
     PeerId, Transport as _,
 };
+use libp2p_webrtc as webrtc;
+use rand::thread_rng;
 
 pub(crate) fn build_transport(
     keypair: &Keypair,
@@ -18,28 +18,22 @@ pub(crate) fn build_transport(
     #[cfg(feature = "open-metrics")]
     let trans = libp2p::metrics::BandwidthTransport::new(trans, &mut registries.standard_metrics);
 
-    #[cfg(feature = "websockets")]
-    // Using a closure here due to the complex return type
-    let generate_ws_transport = || {
-        let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default());
-        libp2p::websocket::WsConfig::new(tcp)
-            .upgrade(upgrade::Version::V1)
-            .authenticate(
-                noise::Config::new(keypair)
-                    .expect("Signing libp2p-noise static DH keypair failed."),
-            )
-            .multiplex(yamux::Config::default())
-    };
+    #[cfg(feature = "webrtc")]
+    let generate_webrtc_transport = webrtc::tokio::Transport::new(
+        keypair.clone(),
+        webrtc::tokio::Certificate::generate(&mut thread_rng())
+            .expect("Could not generate certificate for WebRTC"),
+    );
 
-    // With the `websockets` feature enabled, we add it as a fallback transport.
-    #[cfg(feature = "websockets")]
+    #[cfg(feature = "webrtc")]
     let trans = trans
-        .or_transport(generate_ws_transport())
+        .or_transport(generate_webrtc_transport)
         .map(|either_output, _| match either_output {
             Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
             Either::Right((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
         });
-    #[cfg(not(feature = "websockets"))]
+
+    #[cfg(not(feature = "webrtc"))]
     let trans = trans.map(|(peer_id, muxer), _| (peer_id, StreamMuxerBox::new(muxer)));
 
     trans.boxed()

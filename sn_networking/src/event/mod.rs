@@ -49,6 +49,8 @@ pub(super) enum NodeEvent {
     RelayClient(Box<libp2p::relay::client::Event>),
     RelayServer(Box<libp2p::relay::Event>),
     Void(void::Void),
+    #[cfg(any(feature = "webrtc", target_arch = "wasm32"))]
+    Ping(libp2p::ping::Event),
 }
 
 #[cfg(feature = "upnp")]
@@ -96,6 +98,13 @@ impl From<libp2p::relay::Event> for NodeEvent {
 impl From<void::Void> for NodeEvent {
     fn from(event: void::Void) -> Self {
         NodeEvent::Void(event)
+    }
+}
+
+#[cfg(any(feature = "webrtc", target_arch = "wasm32"))]
+impl From<libp2p::ping::Event> for NodeEvent {
+    fn from(event: libp2p::ping::Event) -> Self {
+        NodeEvent::Ping(event)
     }
 }
 

@@ -32,6 +32,8 @@ use futures::future::Either;
 use futures::StreamExt;
 #[cfg(feature = "local")]
 use libp2p::mdns;
+#[cfg(any(feature = "webrtc", target_arch = "wasm32"))]
+use libp2p::ping;
 use libp2p::{core::muxing::StreamMuxerBox, relay};
 use libp2p::{
     identity::Keypair,
@@ -116,7 +118,10 @@ pub const MAX_PACKET_SIZE: usize = 1024 * 1024 * 5; // the chunk size is 1mb, so
 // Timeout for requests sent/received through the request_response behaviour.
 const REQUEST_TIMEOUT_DEFAULT_S: Duration = Duration::from_secs(30);
 // Sets the keep-alive timeout of idle connections.
-const CONNECTION_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(not(target_arch = "wasm32"))]
+const CONNECTION_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(u64::MAX);
+#[cfg(target_arch = "wasm32")]
+const CONNECTION_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(32_212_254u64); // Max number allowed in WASM
 
 // Inverval of resending identify to connected peers.
 const RESEND_IDENTIFY_INVERVAL: Duration = Duration::from_secs(3600);
@@ -124,7 +129,7 @@ const RESEND_IDENTIFY_INVERVAL: Duration = Duration::from_secs(3600);
 const NETWORKING_CHANNEL_SIZE: usize = 10_000;
 
 /// Time before a Kad query times out if no response is received
-const KAD_QUERY_TIMEOUT_S: Duration = Duration::from_secs(10);
+const KAD_QUERY_TIMEOUT_S: Duration = Duration::from_secs(30);
 
 /// Periodic bootstrap interval
 const KAD_PERIODIC_BOOTSTRAP_INTERVAL_S: Duration = Duration::from_secs(180 * 60);
@@ -252,6 +257,8 @@ pub(super) struct NodeBehaviour {
     pub(super) relay_server: libp2p::relay::Behaviour,
     pub(super) kademlia: kad::Behaviour<UnifiedRecordStore>,
     pub(super) request_response: request_response::cbor::Behaviour<Request, Response>,
+    #[cfg(any(feature = "webrtc", target_arch = "wasm32"))]
+    pub(super) ping: ping::Behaviour,
 }
 
 #[derive(Debug)]
@@ -433,14 +440,15 @@ impl NetworkBuilder {
             .listen_on(addr_quic)
             .expect("Multiaddr should be supported by our configured transports");
 
-        // Listen on WebSocket
-        #[cfg(any(feature = "websockets", target_arch = "wasm32"))]
+        // Listen on WebRTC
+        #[cfg(feature = "webrtc")]
         {
-            let addr_ws = Multiaddr::from(listen_socket_addr.ip())
-                .with(Protocol::Tcp(listen_socket_addr.port()))
-                .with(Protocol::Ws("/".into()));
+            let addr_wrtc = Multiaddr::from(listen_socket_addr.ip())
+                .with(Protocol::Udp(listen_socket_addr.port()))
+                .with(Protocol::WebRTCDirect);
+
             swarm_driver
-                .listen_on(addr_ws)
+                .listen_on(addr_wrtc)
                 .expect("Multiaddr should be supported by our configured transports");
         }
 
@@ -671,6 +679,10 @@ impl NetworkBuilder {
             identify,
             #[cfg(feature = "local")]
             mdns,
+            #[cfg(all(feature = "webrtc", not(target_arch = "wasm32")))]
+            ping: ping::Behaviour::default(),
+            #[cfg(target_arch = "wasm32")]
+            ping: ping::Behaviour::new(ping::Config::new()),
         };
 
         #[cfg(not(target_arch = "wasm32"))]

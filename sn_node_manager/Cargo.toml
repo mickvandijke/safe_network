@@ -28,7 +28,7 @@ otlp = []
 quic = []
 statemap = []
 tcp = []
-websockets = []
+webrtc = []
 faucet = []
 
 [dependencies]

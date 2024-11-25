@@ -15,28 +15,13 @@ default = []
 local = ["libp2p/mdns"]
 upnp = ["libp2p/upnp"]
 # tcp is automatically enabled when compiling for wasm32
-websockets = ["libp2p/tcp"]
+webrtc = []
 open-metrics = ["libp2p/metrics", "prometheus-client", "hyper", "sysinfo"]
 encrypt-records = []
 loud = []
 
 [dependencies]
 lazy_static = "~1.4.0"
-libp2p = { version = "0.54.1", features = [
-    "tokio",
-    "dns",
-    "kad",
-    "macros",
-    "request-response",
-    "cbor",
-    "identify",
-    "quic",
-    "relay",
-    "noise",
-    "tcp",
-    "yamux",
-    "websocket",
-] }
 async-trait = "0.1"
 bytes = { version = "1.0.1", features = ["serde"] }
 exponential-backoff = "2.0.0"
@@ -78,12 +63,13 @@ sha2 = "0.10"
 walkdir = "~2.5.0"
 strum = { version = "0.26.2", features = ["derive"] }
 void = "1.0.2"
+libp2p-webrtc-websys = { path = "../webrtc-websys" }
 
 [dev-dependencies]
 assert_fs = "1.0.0"
 bls = { package = "blsttc", version = "8.0.1" }
 # add rand to libp2p
-libp2p-identity = { version = "0.2.7", features = ["rand"] }
+libp2p-identity = { version = "0.2.10", features = ["rand"] }
 quickcheck = "1.0.3"
 eyre = "0.6.8"
 uuid = { version = "1.5.0", features = ["v4"] }
@@ -96,10 +82,27 @@ workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+libp2p = { version = "0.54.1", features = [
+    "tokio",
+    "dns",
+    "kad",
+    "macros",
+    "request-response",
+    "cbor",
+    "identify",
+    "quic",
+    "relay",
+    "ping",
+    "relay",
+    "noise",
+    "yamux"
+] }
+libp2p-webrtc = { version = "0.8.0-alpha", features = ["tokio"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2.12", features = ["js"] }
 libp2p = { version = "0.54.1", features = [
-    "tokio",
     "dns",
     "kad",
     "tcp",
@@ -107,10 +110,11 @@ libp2p = { version = "0.54.1", features = [
     "request-response",
     "cbor",
     "identify",
-    "noise",
-    "yamux",
-    "websocket-websys",
+    "ping",
     "wasm-bindgen",
+    "relay",
+    "noise",
+    "yamux"
 ] }
 wasmtimer = "0.2.0"
 wasm-bindgen-futures = "0.4.40"
