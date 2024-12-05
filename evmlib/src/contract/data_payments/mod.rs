@@ -60,7 +60,7 @@ where
     }
 
     /// Pay for quotes.
-    /// Input: (quote_id, reward_address, amount).
+    /// Input: (quote_hash, reward_address, amount).
     pub async fn pay_for_quotes<I: IntoIterator<Item = common::QuotePayment>>(
         &self,
         data_payments: I,
@@ -86,7 +86,7 @@ where
     }
 
     /// Pay for quotes.
-    /// Input: (quote_id, reward_address, amount).
+    /// Input: (quote_hash, reward_address, amount).
     /// Returns the transaction calldata.
     pub fn pay_for_quotes_calldata<I: IntoIterator<Item = common::QuotePayment>>(
         &self,

@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{AttoTokens, EvmError};
+use crate::EvmError;
 use evmlib::common::TxHash;
 use evmlib::{
     common::{Address as RewardsAddress, QuoteHash},
@@ -83,8 +83,6 @@ impl Default for QuotingMetrics {
 pub struct PaymentQuote {
     /// the content paid for
     pub content: XorName,
-    /// how much the node demands for storing the content
-    pub cost: AttoTokens,
     /// the local node time when the quote was created
     pub timestamp: SystemTime,
     /// quoting metrics being used to generate this quote
@@ -108,7 +106,6 @@ impl PaymentQuote {
     pub fn zero() -> Self {
         Self {
             content: Default::default(),
-            cost: AttoTokens::zero(),
             timestamp: SystemTime::now(),
             quoting_metrics: Default::default(),
             bad_nodes: vec![],
@@ -128,14 +125,12 @@ impl PaymentQuote {
     /// returns the bytes to be signed from the given parameters
     pub fn bytes_for_signing(
         xorname: XorName,
-        cost: AttoTokens,
         timestamp: SystemTime,
         quoting_metrics: &QuotingMetrics,
         serialised_bad_nodes: &[u8],
         rewards_address: &RewardsAddress,
     ) -> Vec<u8> {
         let mut bytes = xorname.to_vec();
-        bytes.extend_from_slice(&cost.to_bytes());
         bytes.extend_from_slice(
             &timestamp
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -154,7 +149,6 @@ impl PaymentQuote {
     pub fn bytes_for_sig(&self) -> Vec<u8> {
         Self::bytes_for_signing(
             self.content,
-            self.cost,
             self.timestamp,
             &self.quoting_metrics,
             &self.bad_nodes,
@@ -210,10 +204,9 @@ impl PaymentQuote {
     }
 
     /// test utility to create a dummy quote
-    pub fn test_dummy(xorname: XorName, cost: AttoTokens) -> Self {
+    pub fn test_dummy(xorname: XorName) -> Self {
         Self {
             content: xorname,
-            cost,
             timestamp: SystemTime::now(),
             quoting_metrics: Default::default(),
             bad_nodes: vec![],

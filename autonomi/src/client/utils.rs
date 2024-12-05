@@ -241,7 +241,7 @@ async fn fetch_store_quote(
     content_addr: XorName,
 ) -> Result<PayeeQuote, NetworkError> {
     network
-        .get_store_costs_from_network(
+        .get_payment_quotes_from_network(
             NetworkAddress::from_chunk_address(ChunkAddress::new(content_addr)),
             vec![],
         )

@@ -373,26 +373,29 @@ impl Network {
         ))
     }
 
-    /// Get the store costs from the majority of the closest peers to the provided RecordKey.
+    /// Get the payment quotes from the majority of the closest peers to the provided RecordKey.
     /// Record already exists will have a cost of zero to be returned.
     ///
     /// Ignore the quote from any peers from `ignore_peers`.
     /// This is useful if we want to repay a different PeerId on failure.
-    pub async fn get_store_costs_from_network(
+    pub async fn get_payment_quotes_from_network(
         &self,
         record_address: NetworkAddress,
         ignore_peers: Vec<PeerId>,
-    ) -> Result<PayeeQuote> {
+    ) -> Result<Vec<(PeerId, PaymentQuote)>> {
         // The requirement of having at least CLOSE_GROUP_SIZE
         // close nodes will be checked internally automatically.
         let mut close_nodes = self
             .client_get_all_close_peers_in_range_or_close_group(&record_address)
             .await?;
+
         // Filter out results from the ignored peers.
         close_nodes.retain(|peer_id| !ignore_peers.contains(peer_id));
 
         if close_nodes.is_empty() {
-            error!("Cann't get store_cost of {record_address:?}, as all close_nodes are ignored");
+            error!(
+                "Can't get payment quotes for {record_address:?}, as all close_nodes are ignored"
+            );
             return Err(NetworkError::NoStoreCostResponses);
         }
 
@@ -402,6 +405,7 @@ impl Network {
             nonce: None,
             difficulty: 0,
         });
+
         let responses = self
             .send_and_get_responses(&close_nodes, &request, true)
             .await;
@@ -409,6 +413,7 @@ impl Network {
         // loop over responses, generating an average fee and storing all responses along side
         let mut all_costs = vec![];
         let mut all_quotes = vec![];
+
         for response in responses.into_values().flatten() {
             info!(
                 "StoreCostReq for {record_address:?} received response: {:?}",
@@ -423,15 +428,6 @@ impl Network {
                 }) => {
                     if !storage_proofs.is_empty() {
                         debug!("Storage proofing during GetStoreCost to be implemented.");
-                    }
-                    // Check the quote itself is valid.
-                    if quote.cost
-                        != AttoTokens::from_u64(calculate_cost_for_records(
-                            quote.quoting_metrics.close_records_stored,
-                        ))
-                    {
-                        warn!("Received invalid quote from {peer_address:?}, {quote:?}");
-                        continue;
                     }
 
                     all_costs.push((peer_address.clone(), payment_address, quote.clone()));
@@ -454,6 +450,7 @@ impl Network {
             }
         }
 
+        // Why is this needed?
         for peer_id in close_nodes.iter() {
             let request = Request::Cmd(Cmd::QuoteVerification {
                 target: NetworkAddress::from_peer(*peer_id),
@@ -463,7 +460,16 @@ impl Network {
             self.send_req_ignore_reply(request, *peer_id);
         }
 
-        get_fees_from_store_cost_responses(all_costs)
+        Ok(all_quotes
+            .into_iter()
+            .map(|(pa, q)| {
+                (
+                    pa.as_peer_id()
+                        .expect("Could not parse PeerId from NetworkAddress"),
+                    q,
+                )
+            })
+            .collect())
     }
 
     /// Get register from network.
